@@ -1,10 +1,30 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createEntry, deleteEntry, getEntries, type CreateEntryPayload, type TimeEntry } from "@/lib/api";
 
 const PROJECTS = ["Viso Internal", "Client A", "Client B", "Personal Development"] as const;
+type Project = (typeof PROJECTS)[number];
+
 const MAX_HOURS_PER_DAY = 24;
+
+const MONTHS = [
+  { value: "01", label: "January" },
+  { value: "02", label: "February" },
+  { value: "03", label: "March" },
+  { value: "04", label: "April" },
+  { value: "05", label: "May" },
+  { value: "06", label: "June" },
+  { value: "07", label: "July" },
+  { value: "08", label: "August" },
+  { value: "09", label: "September" },
+  { value: "10", label: "October" },
+  { value: "11", label: "November" },
+  { value: "12", label: "December" },
+] as const;
+
+type FilterMode = "all" | "month";
+type Grouped = { date: string; entries: TimeEntry[]; total: number };
 
 function todayYYYYMMDD(): string {
   const d = new Date();
@@ -14,93 +34,90 @@ function todayYYYYMMDD(): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-function formatDateLabel(isoOrDate: string): string {
-  // entries come from API as ISO string; we group by YYYY-MM-DD
-  const date = isoOrDate.length >= 10 ? isoOrDate.slice(0, 10) : isoOrDate;
-  return date;
+function formatDDMMYYYY(isoOrDate: string): string {
+  const d = isoOrDate.slice(0, 10); // YYYY-MM-DD
+  const yyyy = d.slice(0, 4);
+  const mm = d.slice(5, 7);
+  const dd = d.slice(8, 10);
+  return `${dd}-${mm}-${yyyy}`;
 }
 
-type Grouped = {
-  date: string; // YYYY-MM-DD
-  entries: TimeEntry[];
-  total: number;
-};
+
+function dateKeyFromIso(isoOrDate: string): string {
+  return isoOrDate.length >= 10 ? isoOrDate.slice(0, 10) : isoOrDate;
+}
+
+function toYYYYMM(isoOrDate: string): { yyyy: string; mm: string } {
+  const d = dateKeyFromIso(isoOrDate);
+  return { yyyy: d.slice(0, 4), mm: d.slice(5, 7) };
+}
+
+function sumHours(entries: TimeEntry[]): number {
+  return entries.reduce((sum, e) => sum + (Number(e.hours) || 0), 0);
+}
+
+function groupByDate(entries: TimeEntry[]): Grouped[] {
+  const map = new Map<string, TimeEntry[]>();
+
+  for (const e of entries) {
+    const key = dateKeyFromIso(e.date);
+    const list = map.get(key) ?? [];
+    list.push(e);
+    map.set(key, list);
+  }
+
+  const groups: Grouped[] = [];
+  for (const [date, list] of map.entries()) {
+    const sorted = [...list].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+    groups.push({ date, entries: sorted, total: sumHours(sorted) });
+  }
+
+  return groups.sort((a, b) => (a.date < b.date ? 1 : -1));
+}
+
+function CalendarIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M8 2v4M16 2v4" />
+      <rect x="3" y="4" width="18" height="18" rx="2" />
+      <path d="M3 10h18" />
+    </svg>
+  );
+}
 
 export default function Page() {
+  // Form
   const [date, setDate] = useState<string>(todayYYYYMMDD());
-  const [project, setProject] = useState<(typeof PROJECTS)[number]>(PROJECTS[0]);
+  const [project, setProject] = useState<Project>(PROJECTS[0]);
   const [hours, setHours] = useState<string>("1");
   const [description, setDescription] = useState<string>("");
 
+  // Data
   const [entries, setEntries] = useState<TimeEntry[]>([]);
-  const [loading, setLoading] = useState<boolean>(false);
-  const [saving, setSaving] = useState<boolean>(false);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // UI messages
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [filterMode, setFilterMode] = useState<"all" | "month">("all");
+
+  // Filters
+  const [filterMode, setFilterMode] = useState<FilterMode>("all");
   const [filterYear, setFilterYear] = useState<string>("");
-  const [filterMonth, setFilterMonth] = useState<string>(""); // "01".."12"
+  const [filterMonth, setFilterMonth] = useState<string>("");
 
-  function toYYYYMM(isoDate: string): { yyyy: string; mm: string } {
-    const d = isoDate.slice(0, 10); // YYYY-MM-DD
-    return { yyyy: d.slice(0, 4), mm: d.slice(5, 7) };
-  }
+  const dateInputRef = useRef<HTMLInputElement | null>(null);
 
-  const MONTHS = [
-    { value: "01", label: "January" },
-    { value: "02", label: "February" },
-    { value: "03", label: "March" },
-    { value: "04", label: "April" },
-    { value: "05", label: "May" },
-    { value: "06", label: "June" },
-    { value: "07", label: "July" },
-    { value: "08", label: "August" },
-    { value: "09", label: "September" },
-    { value: "10", label: "October" },
-    { value: "11", label: "November" },
-    { value: "12", label: "December" }
-  ] as const;
-
-  const availableYears = useMemo(() => {
-    const set = new Set<string>();
-    for (const e of entries) set.add(toYYYYMM(e.date).yyyy);
-    return Array.from(set).sort((a, b) => (a < b ? 1 : -1)); // desc
-  }, [entries]);
-
-  const availableMonthsForYear = useMemo(() => {
-    if (!filterYear) return [];
-    const set = new Set<string>();
-    for (const e of entries) {
-      const { yyyy, mm } = toYYYYMM(e.date);
-      if (yyyy === filterYear) set.add(mm);
-    }
-    return Array.from(set).sort(); // 01..12
-  }, [entries, filterYear]);
-
-  useEffect(() => {
-    if (availableYears.length && !filterYear) {
-      setFilterYear(availableYears[0]);
-    }
-  }, [availableYears, filterYear]);
-
-  useEffect(() => {
-    if (filterYear && availableMonthsForYear.length && !filterMonth) {
-      setFilterMonth(availableMonthsForYear[0]);
-    }
-  }, [filterYear, availableMonthsForYear, filterMonth]);
-
-    const filteredEntries = useMemo(() => {
-    if (filterMode === "all") return entries;
-
-    if (!filterYear || !filterMonth) return entries;
-    return entries.filter((e) => {
-      const { yyyy, mm } = toYYYYMM(e.date);
-      return yyyy === filterYear && mm === filterMonth;
-    });
-  }, [entries, filterMode, filterYear, filterMonth]);
-
-
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -111,45 +128,71 @@ export default function Page() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     void load();
+  }, [load]);
+
+  const availableYears = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of entries) set.add(toYYYYMM(e.date).yyyy);
+    return Array.from(set).sort((a, b) => (a < b ? 1 : -1));
+  }, [entries]);
+
+  useEffect(() => {
+    if (availableYears.length && !filterYear) setFilterYear(availableYears[0]);
+  }, [availableYears, filterYear]);
+
+  const availableMonthsForYear = useMemo(() => {
+    if (!filterYear) return [];
+    const set = new Set<string>();
+    for (const e of entries) {
+      const { yyyy, mm } = toYYYYMM(e.date);
+      if (yyyy === filterYear) set.add(mm);
+    }
+    return Array.from(set).sort();
+  }, [entries, filterYear]);
+
+  useEffect(() => {
+    if (filterYear && availableMonthsForYear.length && !filterMonth) {
+      setFilterMonth(availableMonthsForYear[0]);
+    }
+  }, [filterYear, availableMonthsForYear, filterMonth]);
+
+  const filteredEntries = useMemo(() => {
+    if (filterMode === "all") return entries;
+    if (!filterYear || !filterMonth) return entries;
+
+    return entries.filter((e) => {
+      const { yyyy, mm } = toYYYYMM(e.date);
+      return yyyy === filterYear && mm === filterMonth;
+    });
+  }, [entries, filterMode, filterYear, filterMonth]);
+
+  const grouped = useMemo(() => groupByDate(filteredEntries), [filteredEntries]);
+  const grandTotal = useMemo(() => grouped.reduce((sum, g) => sum + g.total, 0), [grouped]);
+
+  const currentDayTotal = useMemo(() => {
+    // UX helper: based on currently displayed groups
+    return grouped.find((g) => g.date === date)?.total ?? 0;
+  }, [grouped, date]);
+
+  const openDatePicker = useCallback(() => {
+    const el = dateInputRef.current;
+    if (!el) return;
+    // @ts-expect-error showPicker may not exist in TS dom lib
+    if (typeof el.showPicker === "function") el.showPicker();
+    else {
+      el.focus();
+      el.click();
+    }
   }, []);
 
-const grouped = useMemo<Grouped[]>(() => {
-  const map = new Map<string, TimeEntry[]>();
-
-  for (const e of filteredEntries) {
-    const key = formatDateLabel(e.date);
-    const list = map.get(key) ?? [];
-    list.push(e);
-    map.set(key, list);
-  }
-
-  const groups: Grouped[] = [];
-  for (const [k, list] of map.entries()) {
-    const total = list.reduce((sum, x) => sum + (Number(x.hours) || 0), 0);
-    groups.push({
-      date: k,
-      entries: list.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
-      total,
-    });
-  }
-
-  return groups.sort((a, b) => (a.date < b.date ? 1 : -1));
-}, [filteredEntries]);
-
-
-  const grandTotal = useMemo(() => {
-    return grouped.reduce((sum, g) => sum + g.total, 0);
-  }, [grouped]);
-
-  async function onSave() {
+  const onSave = useCallback(async () => {
     setError(null);
     setSuccess(null);
 
-    // Frontend validation (UX). Backend is the source of truth.
     const hoursNum = Number(hours);
     if (!date || !project || !description.trim()) {
       setError("All fields are required.");
@@ -159,10 +202,6 @@ const grouped = useMemo<Grouped[]>(() => {
       setError("Hours must be a positive number.");
       return;
     }
-
-    // Optional UX check: warn if likely exceeds daily max (server will enforce anyway)
-    const currentDayTotal =
-      grouped.find((g) => g.date === date)?.total ?? 0;
     if (currentDayTotal + hoursNum > MAX_HOURS_PER_DAY) {
       setError(`This would exceed ${MAX_HOURS_PER_DAY} hours for ${date}.`);
       return;
@@ -186,46 +225,51 @@ const grouped = useMemo<Grouped[]>(() => {
     } finally {
       setSaving(false);
     }
-  }
+  }, [date, project, hours, description, currentDayTotal, load]);
 
-      async function onDelete(id: number) {
-  setError(null);
-  setSuccess(null);
-  if (!confirm("Delete this entry?")) return;
+  const onDelete = useCallback(
+    async (id: number) => {
+      setError(null);
+      setSuccess(null);
 
-  try {
-    await deleteEntry(id);
-    setSuccess("Deleted!");
-    await load();
-  } catch (e) {
-    setError(e instanceof Error ? e.message : "Failed to delete");
-  }
-}
+      const ok = confirm("Delete this entry?");
+      if (!ok) return;
+
+      const typed = prompt('Type "DELETE" to confirm:');
+      if (typed !== "DELETE") return;
+
+      try {
+        await deleteEntry(id);
+        setSuccess("Deleted!");
+        await load();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to delete");
+      }
+    },
+    [load]
+  );
 
   return (
     <main className="mx-auto max-w-4xl p-6 space-y-8">
       <h1 className="text-2xl font-semibold">Time Tracker</h1>
 
+      {/* Time Entry */}
       <section className="rounded-xl border p-4 space-y-4">
         <h2 className="text-lg font-medium">Time Entry</h2>
 
         {error && (
-          <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700">
-            {error}
-          </div>
+          <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700">{error}</div>
         )}
         {success && (
-          <div className="rounded-md border border-green-400 bg-green-100 p-3 text-sm text-green-700">
-            {success}
-          </div>
+          <div className="rounded-md border border-green-400 bg-green-100 p-3 text-sm text-green-700">{success}</div>
         )}
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <label className="space-y-1">
             <div className="text-sm font-medium">Date</div>
-
             <div className="relative">
               <input
+                ref={dateInputRef}
                 id="date-input"
                 type="date"
                 value={date}
@@ -235,41 +279,19 @@ const grouped = useMemo<Grouped[]>(() => {
               <button
                 type="button"
                 aria-label="Open date picker"
-                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 hover:bg-gray-500"
-                onClick={() => {
-                  const el = document.getElementById("date-input") as HTMLInputElement | null;
-                  if (!el) return;
-                  if (typeof el.showPicker === "function") el.showPicker();
-                  else {
-                    el.focus();
-                    el.click();
-                  }
-                }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-gray-700 hover:bg-gray-100"
+                onClick={openDatePicker}
               >
-  <svg
-    viewBox="0 0 24 24"
-    className="h-4 w-4"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M8 2v4M16 2v4" />
-    <rect x="3" y="4" width="18" height="18" rx="2" />
-    <path d="M3 10h18" />
-  </svg>
-
+                <CalendarIcon />
               </button>
             </div>
           </label>
-
 
           <label className="space-y-1">
             <div className="text-sm font-medium">Project</div>
             <select
               value={project}
-              onChange={(e) => setProject(e.target.value as (typeof PROJECTS)[number])}
+              onChange={(e) => setProject(e.target.value as Project)}
               className="w-full rounded-md border px-3 py-2"
             >
               {PROJECTS.map((p) => (
@@ -315,6 +337,7 @@ const grouped = useMemo<Grouped[]>(() => {
         </label>
       </section>
 
+      {/* Entry History */}
       <section className="rounded-xl border p-4 space-y-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div className="flex items-center gap-3">
@@ -322,7 +345,7 @@ const grouped = useMemo<Grouped[]>(() => {
               <div className="font-medium">Entry History</div>
               <select
                 value={filterMode}
-                onChange={(e) => setFilterMode(e.target.value as "all" | "month")}
+                onChange={(e) => setFilterMode(e.target.value as FilterMode)}
                 className="mt-1 rounded-md border px-3 py-2"
               >
                 <option value="all">Show all</option>
@@ -338,12 +361,14 @@ const grouped = useMemo<Grouped[]>(() => {
                     value={filterYear}
                     onChange={(e) => {
                       setFilterYear(e.target.value);
-                      setFilterMonth(""); // ресет місяця
+                      setFilterMonth("");
                     }}
                     className="mt-1 rounded-md border px-3 py-2"
                   >
                     {availableYears.map((y) => (
-                      <option key={y} value={y}>{y}</option>
+                      <option key={y} value={y}>
+                        {y}
+                      </option>
                     ))}
                   </select>
                 </label>
@@ -388,37 +413,35 @@ const grouped = useMemo<Grouped[]>(() => {
 
                 <div className="overflow-x-auto rounded-md border">
                   <table className="min-w-full text-sm">
-                    <thead >
+                    <thead>
                       <tr>
                         <th className="text-left p-2 w-36">Date</th>
                         <th className="text-left p-2 w-48">Project</th>
                         <th className="text-left p-2 w-24">Hours</th>
                         <th className="text-left p-2">Description</th>
-                       <th className="p-2 text-right w-0 whitespace-nowrap"></th>
-
+                        <th className="p-2 text-right w-0 whitespace-nowrap" />
                       </tr>
                     </thead>
                     <tbody>
                       {g.entries.map((e) => (
                         <tr key={e.id} className="border-t">
-                          <td className="p-2">{formatDateLabel(e.date)}</td>
+                          <td className="p-2">{formatDDMMYYYY(e.date)}</td>
                           <td className="p-2">{e.project}</td>
                           <td className="p-2">{Number(e.hours).toFixed(2)}</td>
                           <td className="p-2">{e.description}</td>
-<td className="p-2 text-right">
-  <button
-    type="button"
-    aria-label="Delete entry"
-    title="Delete"
-    className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-300 text-red-700 hover:bg-red-300"
-    onClick={() => onDelete(e.id)}
-  >
-    ✕
-  </button>
-
-</td>
-
-
+                          <td className="p-2 text-right w-0 whitespace-nowrap">
+                            <div className="flex justify-end">
+                              <button
+                                type="button"
+                                aria-label="Delete entry"
+                                title="Delete"
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-300 text-red-700 hover:bg-red-50"
+                                onClick={() => onDelete(e.id)}
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
