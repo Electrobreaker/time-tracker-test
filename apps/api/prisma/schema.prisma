@@ -1,0 +1,21 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model TimeEntry {
+  id          Int      @id @default(autoincrement())
+  date        DateTime
+  project     String
+  hours       Float
+  description String
+  createdAt   DateTime @default(now())
+}
+
