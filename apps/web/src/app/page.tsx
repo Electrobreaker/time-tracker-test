@@ -174,14 +174,12 @@ export default function Page() {
   const grandTotal = useMemo(() => grouped.reduce((sum, g) => sum + g.total, 0), [grouped]);
 
   const currentDayTotal = useMemo(() => {
-    // UX helper: based on currently displayed groups
     return grouped.find((g) => g.date === date)?.total ?? 0;
   }, [grouped, date]);
 
   const openDatePicker = useCallback(() => {
     const el = dateInputRef.current;
     if (!el) return;
-    // @ts-expect-error showPicker may not exist in TS dom lib
     if (typeof el.showPicker === "function") el.showPicker();
     else {
       el.focus();
