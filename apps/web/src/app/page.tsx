@@ -225,27 +225,24 @@ export default function Page() {
     }
   }, [date, project, hours, description, currentDayTotal, load]);
 
-  const onDelete = useCallback(
-    async (id: number) => {
-      setError(null);
-      setSuccess(null);
+ const onDelete = useCallback(
+  async (id: number) => {
+    setError(null);
+    setSuccess(null);
 
-      const ok = confirm("Delete this entry?");
-      if (!ok) return;
+    const ok = confirm("Delete this entry?");
+    if (!ok) return;
 
-      const typed = prompt('Type "DELETE" to confirm:');
-      if (typed !== "DELETE") return;
-
-      try {
-        await deleteEntry(id);
-        setSuccess("Deleted!");
-        await load();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to delete");
-      }
-    },
-    [load]
-  );
+    try {
+      await deleteEntry(id);
+      setSuccess("Deleted!");
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to delete");
+    }
+  },
+  [load]
+);
 
   return (
     <main className="mx-auto max-w-4xl p-6 space-y-8">
