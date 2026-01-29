@@ -33,3 +33,11 @@ export async function createEntry(payload: CreateEntryPayload): Promise<TimeEntr
   if (!res.ok) throw new Error(data?.message ?? "Failed to create entry");
   return data;
 }
+
+export async function deleteEntry(id: number): Promise<void> {
+  const res = await fetch(`${API_URL}/entries/${id}`, { method: "DELETE" });
+  if (!res.ok && res.status !== 204) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data?.message ?? "Failed to delete entry");
+  }
+}

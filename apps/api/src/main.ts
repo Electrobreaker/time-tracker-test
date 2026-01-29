@@ -41,4 +41,20 @@ app.post("/entries", async (req, res) => {
   res.status(201).json(created);
 });
 
+app.delete("/entries/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ message: "Invalid id" });
+  }
+
+  try {
+    await prisma.timeEntry.delete({ where: { id } });
+    return res.status(204).send();
+  } catch (e) {
+    // Prisma кидає помилку, якщо запис не знайдено
+    return res.status(404).json({ message: "Entry not found" });
+  }
+});
+
+
 app.listen(3001, () => console.log("API on http://localhost:3001"));
