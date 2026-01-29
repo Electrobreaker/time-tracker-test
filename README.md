@@ -42,7 +42,6 @@ npm install
 API (apps/api/.env)
 Create a file apps/api/.env:
 
-env
 DATABASE_URL="file:./dev.db"
 This creates a local SQLite database file at apps/api/dev.db (ignored by git).
 
@@ -82,24 +81,11 @@ http://localhost:3000
 4) Quick sanity check
 Create an entry (example):
 
-bash
 curl -X POST http://127.0.0.1:3001/entries \
   -H "Content-Type: application/json" \
   -d '{"date":"2026-01-29","project":"Client A","hours":2,"description":"Setup project"}'
-Fetch entries:
 
-bash
+
+Fetch entries:
 curl http://127.0.0.1:3001/entries
 makefile
-
-
-
-
-
-
-
-
-
-Обробка
-
-
