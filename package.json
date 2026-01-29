@@ -1,0 +1,10 @@
+{
+  "name": "time-tracker-test",
+  "private": true,
+  "workspaces": ["apps/*"],
+  "scripts": {
+    "dev": "npm run -ws dev",
+    "build": "npm run -ws build",
+    "lint": "npm run -ws lint"
+  }
+}
