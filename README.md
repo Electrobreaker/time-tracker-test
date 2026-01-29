@@ -21,11 +21,15 @@ Simple time tracking app with:
 - Prisma (Prisma ORM v7 + SQLite adapter)
 
 ## Project Structure
+
+```text
+time-tracker-test/
 ├─ apps/
-│ ├─ web/ # Next.js frontend
-│ └─ api/ # Express backend + Prisma
-├─ package.json # npm workspaces (monorepo)
+│  ├─ web/   # Next.js frontend
+│  └─ api/   # Express backend + Prisma
+├─ package.json  # npm workspaces (monorepo)
 └─ README.md
+
 
 ## Prerequisites
 
